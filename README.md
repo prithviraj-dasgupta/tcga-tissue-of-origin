@@ -11,6 +11,7 @@ About 2–5% of cancers are diagnosed as metastases whose primary site cannot be
 3. **SHAP also exposed a shortcut.** Among the top genes for cervical and ovarian cancer were *NLGN4Y* (Y chromosome) and *TSIX* (X-inactivation). This means the model was partly using "the patient is female" rather than tumour biology. I removed the four genes that separate male from female patients almost perfectly (*NLGN4Y, PRKY, TSIX, XIST*) and retrained the model. Accuracy was unchanged (96.3%, macro-F1 0.947), so the model does not *need* the shortcut. It is still a good reminder to check what a model is using.
 4. **A few dozen genes get most of the way.** With only the top gene per cancer type (33 genes), accuracy is 88.2%. With 3 per type (93 genes) it is 94.0%, and with 5 per type (151 genes) it is 94.9%. Going up to 2,000 genes adds only about 1.5 percentage points.
 5. **The errors are biologically sensible.** The main confusions are rectum vs colon (READ F1 0.66), uterine carcinosarcoma vs endometrial carcinoma (UCS 0.78), cholangiocarcinoma vs liver and pancreas (CHOL 0.77), and oesophageal vs stomach (ESCA 0.90). These are neighbouring or closely related tissues, and TCGA itself often merges colon and rectum.
+6. **It mostly still works on metastases.** I trained the model on primary tumours only and then tested it on 371 TCGA metastases it had never seen (367 melanoma, mostly lymph node, skin and soft-tissue metastases, plus 4 others). It assigned **91.4%** to the correct origin (melanoma: 336/367, 91.6%). Many of the errors make sense. Nineteen were called sarcoma, which may reflect the soft tissue around a metastasis or melanomas that look mesenchymal. Four were called uveal melanoma, which is the same melanocyte lineage. Two were called lymphoma, possibly because the sample included surrounding lymph-node tissue. The model's confidence was also informative: the median predicted probability was 0.99 for correct calls and 0.66 for wrong ones, so low confidence flags the cases to double-check.
 
 ## Figures
 
@@ -25,6 +26,10 @@ About 2–5% of cancers are diagnosed as metastases whose primary site cannot be
 **Where the model goes wrong** (baseline logistic regression, rows sum to 1)
 
 ![Confusion matrix](results/baseline_confusion_matrix.png)
+
+**Metastases: what the model predicted** (trained on primary tumours only; blue = correct origin, red = wrong origin)
+
+![Metastasis predictions](results/metastasis_predictions.png)
 
 The 20 most important genes overall are in [`results/shap_global_top20.png`](results/shap_global_top20.png).
 
@@ -46,12 +51,13 @@ I kept primary tumours only (TCGA sample code 01, or 03 for AML) and one tumour 
 | 2 | `02_baseline_model.py` | Picks the 2,000 most variable genes (training set only, inside the pipeline), then standardises them and fits a multinomial logistic regression (L2, C = 0.1). Reports 5-fold CV, test metrics and the confusion matrix |
 | 3 | `03_lightgbm_shap.py` | LightGBM classifier on the same genes, with SHAP (TreeExplainer) on 600 random test tumours. Reports the top genes pushing tumours of each type towards that type |
 | 4 | `04_sex_genes_and_minimal_panel.py` | Finds sex-linked genes (male vs female AUC > 0.9 or < 0.1 in training tumours of cancer types seen in both sexes) and removes them. Then ranks genes per cancer type by the logistic-regression coefficient and scores panels of 1–50 genes per type on the test set |
+| 5 | `05_metastasis_test.py` | Trains the step-4 model on primary tumours, then predicts the origin of TCGA metastatic samples (code 06). Patients whose primary tumour was in the training set are excluded |
 
 Gene selection, scaling and ranking only ever use the training set, so no information from the test set leaks into the model.
 
 ## Limitations
 
-- **Primary tumours only.** The clinical use case is metastases, where the expression profile is mixed with that of the host organ (for example, liver tissue around a liver metastasis). Accuracy on primary tumours is an upper bound. Testing on metastatic samples is the obvious next step.
+- **The metastasis test is almost all melanoma.** TCGA has very few metastatic samples from other cancers, and melanoma is a distinctive lineage (*SOX10*, *PMEL*). Metastases from carcinomas, especially to organs like the liver or lung where host tissue dominates, would be a harder test.
 - **One cohort, one platform.** All samples are TCGA RNA-seq processed the same way. Performance on other cohorts, sequencing protocols or FFPE material is unknown.
 - **Labels are TCGA projects, not pure tissues.** Some classes are biologically overlapping (COAD/READ, UCEC/UCS, LUAD/LUSC). Part of the "error" there reflects how TCGA defines its cancer types.
 - **Small classes give noisy scores.** CHOL has only 7 test tumours, so its per-class score is uncertain.
@@ -61,7 +67,7 @@ Gene selection, scaling and ranking only ever use the training set, so no inform
 
 ## Next steps
 
-- Test the classifier on TCGA metastatic melanoma samples and on an independent metastasis cohort (e.g. MET500)
+- Test the classifier on an independent metastasis cohort with many primary sites (e.g. MET500)
 - Merge COAD/READ and LUAD/LUSC as a sensitivity analysis
 - Compare the minimal panel with published CUP classifier gene sets
 - Rerun SHAP without the sex-linked genes
@@ -78,6 +84,7 @@ python src/01_prepare_data.py
 python src/02_baseline_model.py
 python src/03_lightgbm_shap.py
 python src/04_sex_genes_and_minimal_panel.py
+python src/05_metastasis_test.py
 ```
 
 Each script takes a few minutes on a laptop (tested on an Apple Silicon MacBook Pro).
@@ -88,6 +95,7 @@ Each script takes a few minutes on a laptop (tested on an Apple Silicon MacBook 
 - `results/shap_top_genes_per_type.csv` lists the top 5 SHAP genes per cancer type
 - `results/sex_linked_genes_removed.txt`
 - `results/panel_size_vs_accuracy.csv` and `results/minimal_panel_genes.csv` (3 genes per type)
+- `results/metastasis_predictions.csv` gives the prediction and confidence for each metastasis
 - Figures: `results/*.png`
 
 ## References

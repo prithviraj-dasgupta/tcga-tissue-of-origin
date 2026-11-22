@@ -72,14 +72,41 @@ Gene selection, scaling and ranking only ever use the training set, so no inform
 - Compare the minimal panel with published CUP classifier gene sets
 - Rerun SHAP without the sex-linked genes
 
-## Reproduce
+## Setup and how to run
+
+### Requirements
+
+- [conda](https://docs.conda.io/) or mamba (I use [Miniforge](https://github.com/conda-forge/miniforge))
+- `bash` and `curl`, for the data download
+- About 1 GB of free disk space (~320 MB of raw data plus a ~610 MB processed matrix)
+- An internet connection for the one-time download
+
+Tested on macOS with Apple Silicon. It should also run on Linux.
+
+### 1. Set up the environment
 
 ```bash
 git clone https://github.com/prithviraj-dasgupta/tcga-tissue-of-origin.git
 cd tcga-tissue-of-origin
-conda env create -f environment.yml
+conda env create -f environment.yml   # or: mamba env create -f environment.yml
 conda activate origin
+```
+
+This creates an environment called `origin` with Python 3.11 and pandas, numpy, scikit-learn, LightGBM, SHAP, matplotlib and seaborn, all from conda-forge.
+
+### 2. Download the data
+
+```bash
 bash src/00_download_data.sh
+```
+
+This downloads the expression matrix (`expression.xena.gz`, ~316 MB) and the clinical table (`survival.tsv`) from the UCSC Xena hub into `data/raw/`. The `data/` folder is in `.gitignore`, so it is never committed.
+
+### 3. Run the pipeline
+
+**Run every script from the repository root.** The scripts use relative paths (`data/raw`, `data/processed`, `results`) and will fail with `FileNotFoundError` if started from somewhere else.
+
+```bash
 python src/01_prepare_data.py
 python src/02_baseline_model.py
 python src/03_lightgbm_shap.py
@@ -87,7 +114,31 @@ python src/04_sex_genes_and_minimal_panel.py
 python src/05_metastasis_test.py
 ```
 
-Each script takes a few minutes on a laptop (tested on an Apple Silicon MacBook Pro).
+Or all at once:
+
+```bash
+for s in src/0[1-5]_*.py; do python "$s" || break; done
+```
+
+Each script takes a few minutes on a laptop (tested on an Apple Silicon MacBook Pro). Steps 2 and 3 use every CPU core. Random seeds are fixed, so reruns give the same numbers.
+
+### Rerunning individual steps
+
+Once step 1 has run, steps 2, 3 and 4 can be rerun on their own in any order. Step 5 needs a file written by step 4.
+
+| Step | Needs | Writes |
+|---|---|---|
+| 01 | `data/raw/expression.xena.gz`, `data/raw/survival.tsv` | `data/processed/tumour_expression.pkl`, `data/processed/labels.csv` |
+| 02 | step 01 output | `results/baseline_*` |
+| 03 | step 01 output | `results/lgbm_metrics.txt`, `results/shap_*` |
+| 04 | step 01 output, `data/raw/survival.tsv` | `results/sex_linked_genes_removed.txt`, `results/panel_size_vs_accuracy.*`, `results/minimal_panel_genes.csv` |
+| 05 | step 01 output, **`results/sex_linked_genes_removed.txt` (step 04)**, `data/raw/*` | `results/metastasis_predictions.*` |
+
+### Troubleshooting
+
+- **`FileNotFoundError`**: either you are not in the repository root, or an earlier step has not been run yet (see the table above). Steps 4 and 5 expect `results/` to exist already. Steps 2 and 3 create it, and you can also run `mkdir -p results`.
+- **Download interrupted or corrupted**: delete `data/raw/` and run `bash src/00_download_data.sh` again.
+- **LightGBM import errors on macOS**: install LightGBM from conda-forge (as `environment.yml` does), not with pip, so that the OpenMP library it needs is included.
 
 ## Outputs
 
